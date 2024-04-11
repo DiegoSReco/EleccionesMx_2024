@@ -1,1 +1,1 @@
-# EleccionesMx_2024
+# Elecciones en México 2024
