@@ -1,0 +1,97 @@
+#Packages
+#rm(list=ls()) 
+library(pacman)
+p_load('tidyverse', 'readxl', 
+       'geomtextpath',
+       'reactable', 'viridis', 
+       "ggtext", "mdthemes", 
+       "glue", "scales", 
+       "openxlsx")
+
+#Datos por reango de edad 
+df_ine_edad  <- read_xlsx('DatosAbiertos_edad.xlsx')
+#Reparammos nombre de columna
+colnames(df_ine_edad) <- gsub("[\r\n]", "_", colnames(df_ine_edad ))
+list_colnames <- colnames(df_ine_edad)
+#Nos quedamos con vars para Lista Nominal
+list_filter <- list_colnames[grepl("^LISTA_\\d+",  list_colnames)]
+#Agregamos variables por las que queremos agrupar
+list_col <- c("NOMBRE__ENTIDAD", "NOMBRE__MUNICIPIO",list_filter  )
+
+#Convertimos a Tidy format y transformamos variables
+df_ine_f <- df_ine_edad %>%
+               select(list_col) |>  
+  gather(key = "Age_Group_Gender", 
+         value = "Personas", 
+         -c("NOMBRE__ENTIDAD", "NOMBRE__MUNICIPIO")) |>  
+  mutate( 
+         edad = as.numeric(str_extract(Age_Group_Gender, "\\d+")) ,
+         r_edad = case_when( between(edad, 18, 24)  ~ "[18-24]",
+                             edad == 25 ~ "[25-29]", 
+                             edad == 30 ~ "[30-34]", 
+                             edad == 35 ~ "[35-39]",
+                             edad == 40 ~ "[40-44",
+                             edad == 45 ~ "[45-49]",
+                             edad == 50 ~ "[50-54]",
+                             edad == 55 ~ "[55-59]",
+                             edad == 60 ~ "[60-64]",
+                             edad == 65 ~ "65+" ), 
+          sexo = case_when(
+                 str_detect(Age_Group_Gender, "HOMBRE") ~ "Hombres",
+                 str_detect(Age_Group_Gender, "MUJER") ~ "Mujeres",
+                 str_detect(Age_Group_Gender, "BINA") ~ "No binario"
+                 
+          )) 
+
+
+#Filtramos para Aguascalientes
+ df_ine_est_mun   <- df_ine_f |>  
+                    filter( NOMBRE__ENTIDAD == "AGUASCALIENTES" & (sexo!= 'No binario') ) |>  
+                    group_by(NOMBRE__MUNICIPIO, r_edad, sexo)  |> 
+                    summarise( Total_personas = sum(Personas)) |>   
+                    ungroup() |> 
+                    group_by(NOMBRE__MUNICIPIO)  |> 
+                    mutate(Porcentaje = Total_personas/sum(Total_personas),
+                           Porcentaje_c = if_else(sexo == 'Hombres', Porcentaje *-1, Porcentaje),
+                           Municipio = str_to_title(NOMBRE__MUNICIPIO))
+
+ 
+#Plot: Plot pirámide poblacional con lista nominal
+#Tema
+my_theme <- function() { 
+   
+   theme_minimal() +
+     theme(
+       plot.background = element_rect(fill = "white"),
+       plot.title = element_markdown( vjust = 1,
+                                      size=15,face ='bold', hjust = 0.5),
+       plot.subtitle =   element_text(lineheight = 1, size=13, color = "gray31",hjust = 0.5),
+       #plot.subtitle = element_markdown(size =12,margin = margin(b = 20)),
+       plot.caption =  element_text(hjust = 0, size=10),
+       legend.position = c("top"),
+       text = element_text(size=11),
+       axis.text.x = element_blank())
+ } 
+pal <- (c("steelblue",  "darkviolet"))
+ 
+#Plot
+plot_lista_ags <- df_ine_est_mun |>  
+  ggplot(aes(x = r_edad, y = Porcentaje_c, fill = sexo)) +
+   geom_bar(stat = "identity", position = "identity") +
+   facet_wrap(~Municipio, scales = "free_x") +
+   geom_text( position = position_stack(vjust = 0.5),
+             aes(group = sexo, label = paste0(round(abs(Porcentaje_c)*100,1), "%")),
+             color = "lightblue", size = 2.5) + 
+   my_theme()+
+   scale_fill_manual(values = pal, name = NULL) + 
+   labs( title = "¿Quiénes votaran en las próximas elecciones en Aguascalientes?",
+         subtitle ="Distribución por rango de edad y sexo de lista nominal 2024", 
+         x = "", 
+         y= "% (Total por municipio)",
+         caption = 'Fuente: Lista Nominal 2024 (más actual) INE por @Diegosreco')
+   
+ ggsave("plot_lista_ags")
+ 
+
+ 
+ 
